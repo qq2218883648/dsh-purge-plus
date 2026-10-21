@@ -501,6 +501,11 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
 			"refusal.save": "保存拒答设置",
 			"refusal.saved": "已保存，本轮结束后生效",
 			"refusal.badMax": "每轮次数要填 0 ~ 10 的整数",
+			"prompts.title": "提示词库",
+			"prompts.lead": "一份注入槽配一组可切换的提示词。点一份就用它，写进 prompt-inject.md。",
+			"prompts.hint": "内置四份：出厂默认、精简执行者、创作模式、红队作业。第三方提示词可从 GitHub 拉下来后用 /purge prompts import <路径> 导入。",
+			"prompts.empty": "库为空。重启插件会自动补写内置四份，或执行 /purge prompts seed。",
+			"prompts.done": "已切换，重启 dsh 后生效",
 			"continue.title": "失败重试 / 继续",
 			"continue.hint": "请求失败会自动重试；异常停止或中断可点「继续」或自动续跑。自己点停止不会自动继续。次数用完后需新开一轮。",
 			"continue.autoRetry": "失败自动重试",
@@ -893,6 +898,11 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
 			"refusal.save": "Save refusal settings",
 			"refusal.saved": "Saved — applies after this turn",
 			"refusal.badMax": "Retries per turn must be an integer between 0 and 10",
+			"prompts.title": "Prompt library",
+			"prompts.lead": "One injection slot, a set of switchable prompts. Click one to write it into prompt-inject.md.",
+			"prompts.hint": "Four built-ins: factory default, lean executor, creative, red team. Import third-party prompts from GitHub with /purge prompts import <path>.",
+			"prompts.empty": "Library is empty. Restart the plugin to seed the four built-ins, or run /purge prompts seed.",
+			"prompts.done": "Switched — takes effect after the next dsh restart",
 			"continue.title": "Retry / Continue",
 			"continue.hint": "Failed requests auto-retry. After an abnormal stop or interrupt, use Continue or auto-resume. A manual stop never auto-continues. Counts reset after a completed turn.",
 			"continue.autoRetry": "Auto-retry on failure",
@@ -1769,6 +1779,69 @@ body:not([data-ds-dark-theme]) .dshp-auth-legal{background:var(--dsw-alias-bg-la
 			);
 		}
 
+		/* 提示词库（1.5.0）：一份注入槽 + 一组可切换的提示词。
+		 * 「使用」= 把该份正文写进 prompt-inject.md，注入链路完全复用现有那套。 */
+		function PromptsSection({ t: tProp }) {
+			const t = typeof tProp === "function" ? tProp : useT();
+			const [list, setList] = useState(null);
+			const [notice, setNotice] = useState({ kind: "idle", text: "" });
+			const [busy, setBusy] = useState(false);
+
+			const load = () => {
+				apiJson("/dsh-purge/prompts")
+					.then((d) => { if (d && d.ok !== false) setList(d); })
+					.catch((e) => setNotice({ kind: "error", text: t("err.save", { error: e.message }) }));
+			};
+
+			useEffect(load, []);
+
+			const act = (action, id) => {
+				if (busy) return;
+				setBusy(true);
+				apiJson("/dsh-purge/prompts", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ action, id }),
+				})
+					.then((d) => {
+						setNotice({ kind: "ok", text: t("prompts.done") });
+						load();
+					})
+					.catch((e) => setNotice({ kind: "error", text: t("err.save", { error: e.message }) }))
+					.finally(() => setBusy(false));
+			};
+
+			if (!list) return null;
+			const items = Array.isArray(list.prompts) ? list.prompts : [];
+			return h("section", { className: "dshp-panel", "aria-label": t("prompts.title") },
+				h("div", { className: "dshp-head" },
+					h("div", null,
+						h("h3", { className: "dshp-title" }, t("prompts.title")),
+						h("p", { className: "dshp-panel-lead" }, t("prompts.lead")),
+					),
+					h("div", { className: "dshp-row", style: { margin: 0 } }, noticeNode(notice)),
+				),
+				items.length === 0
+					? h("p", { className: "dshp-block-hint" }, t("prompts.empty"))
+					: h("div", { className: "dshp-cr-row", style: { flexWrap: "wrap" } },
+						items.map((p) => h("span", {
+							key: p.id,
+							style: { display: "inline-flex", alignItems: "center", gap: 6, marginRight: 12, marginBottom: 6 },
+						},
+							h("button", {
+								type: "button",
+								className: "dshp-btn " + (p.active ? "dshp-btn-primary" : "dshp-btn-ghost") + " dshp-btn-tiny",
+								disabled: busy,
+								title: p.source || "",
+								onClick: () => act("use", p.id),
+							}, (p.active ? "▶ " : "") + p.name),
+							h("span", { style: { color: "var(--dshp-mute)", fontSize: 11 } }, `${p.size} B`),
+						)),
+					),
+				h("p", { className: "dshp-block-hint" }, t("prompts.hint")),
+			);
+		}
+
 		function ContinueRetrySection() {
 			const t = useT();
 			const [cfg, setCfg] = useState(null);
@@ -2545,6 +2618,7 @@ body:not([data-ds-dark-theme]) .dshp-auth-legal{background:var(--dsw-alias-bg-la
 					style: { color: "var(--dshp-bad)" },
 				}, t("need.prompt")) : null,
 			),
+			h(PromptsSection, { t: t }),
 			h(SamplingSection, {}),
 			h(RefusalSection, {}),
 			h("section", { className: "dshp-panel", "aria-label": t("own.title") },

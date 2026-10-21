@@ -7,6 +7,31 @@ Baseline: **1.2.0**. Everything below is what this fork adds, improves, or fixes
 
 ---
 
+## 1.5.0 — 提示词库：一份注入槽，多份提示词任选
+
+### 新增：`lib/prompts.js`（全局）
+
+注入槽只有一个（`prompt-inject.md`），但提示词可以有很多份，点一下换一份：
+
+- 目录：`$DSH_HOME/dsh-purge/prompts/<id>.md` + `<id>.json`（name / source / license / note / builtin）
+- **切换**：`activatePrompt(id)` 把正文写进 `prompt-inject.md`，走 `core.saveOverrideContent`，`override-state` 的 customized/hash 一并更新——设置页「提示词」文本框、`/purge edit`、组装链路看到的是同一份；注入路径完全复用（dsh-purge 段落 → assemble 瀑布 → 引擎补丁 #40 的 complete 保注入）
+- **内置四份**（首启落盘，不覆盖已有）：`builtin`（出厂默认，取自插件内置槽位）、`lean`（精简执行者，省 token）、`creative`（创作模式）、`redteam`（红队作业）
+- **第三方导入**：`/purge prompts import <路径> [id]`，meta 里保留 `source` 出处（供署名），不把别人的原文塞进本仓库
+- 三入口：`/purge prompts [list|use|show|save|import|delete|seed]`、工具 `purge_prompts`、`GET/POST /dsh-purge/prompts`（POST 带 `action: use|save|import|delete`，返回 `rev`）
+- 设置页新增「提示词库」卡片：每份一个按钮，当前生效的标 `▶`，点一下即切换
+
+### 借鉴来源（读源码后自撰，未复制原文）
+
+- [wudidianzishu/dsh-purge-preset](https://github.com/wudidianzishu/dsh-purge-preset)（MIT）：`complete:true` 预设合成思路、前置声明 + 正文 + 尾部的叠放顺序、NOTICE 署名写法
+- [yukk4159-bit/dsh-prompt-injector](https://github.com/yukk4159-bit/dsh-prompt-injector)：预设列表 + 一键应用 + chip 状态提示的交互
+- 上游 `dsh-purge` 1.1.71 默认词：作为 `builtin` 一份保留，其余三份为本仓库自撰
+
+### 测试
+
+新增 `test/prompts.mjs` 20 项：seed 幂等、list/active 标记、activate 写入一致性、改正文后 active 消失、save/read/delete、import 保留出处、非法 id 与空正文拒绝、状态文本——ALL PASS。回归：`refusal-sampling` 26 项、`sampling` 26 项、`gate` 71 项全过。
+
+---
+
 ## 1.4.4 — 拒答自愈 + 采样补齐 stop / maxTokens（全部全局）
 
 ### 新增：拒答自愈（`lib/refusal.js`）
