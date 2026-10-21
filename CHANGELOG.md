@@ -7,6 +7,30 @@ Baseline: **1.2.0**. Everything below is what this fork adds, improves, or fixes
 
 ---
 
+## 1.4.2 — 采样扩展：请求级温度 + assistant 预填（全量宿主源码对齐后移植）
+
+### 新增能力
+
+- **温度注入**（`lib/sampling.js` `installTemperatureHook`）：监听 `agent/request` waterfall，把 `$DSH_HOME/dsh-purge/sampling.json` 里的 `temperature`（0~2 钳制）并进请求 config。`LlmCallConfig.callConfigEquals` 原生比较 temperature（0.1.7 与 0.2.1-rc.2 均是 `dsh-llm/lib/index.js:368`），`buildRequest` 写进 request header，不变量按 header 对账通过。
+- **assistant 预填**（`installPrefillHook`）：监听 `agent/pre-step` waterfall，在 `decision.messages` 尾部追加一条 assistant 消息；step() 以 user/message 落 session，DeepSeek 适配器把它作为末条 assistant 轮次原文发出（Anthropic 式预填）。
+- **prefillOnce 模式**（默认 true）：只在每轮第一步（`payload.step === 1`）注入，避免多步会话预填堆积；`/purge sampling every` 或工具参数 `prefillOnce:false` 切换为每步注入。
+- **durableRead**：两个钩子读配置失败（文件损坏/并发写）时静默回退默认值，钩子永不让请求失败。
+- 三个入口：`/purge sampling [temp <0~2|off> | prefill <文本> | once | every | clear]`；模型工具 `purge_sampling`（temperature/prefill/prefillOnce）；HTTP `GET/POST /dsh-purge/sampling`（设置面板可接，POST 返回带 `rev`，融入 1.4.0 的 CAS 修订号体系）。
+
+### 0.2.1-rc.2 宿主对齐（逐文件核过的依据）
+
+- `agent/request` seed config 仍是 provider/model/reasoningEffort/maxTokens 四字段（0.2.1 `prepareRequest`），监听器返回带 temperature 的新 config 的做法不变。
+- 0.2.1 的 `preStep` 决策结构不变；`step()` 新增按 `message.source.kind === "runtime-context"` 分流——我们的预填 `source.kind` 是 `"model"`，走普通落库路径，不被误认。测试覆盖了「预填追加在 runtime-context 消息之后且顺序不乱」。
+- 0.2.1 的 patch #67（AGENT_LOOP_MESSAGES_GUARD）给 `decision.messages` 缺省兜底；我们的钩子自带 `Array.isArray` 检查，双保险，测试覆盖 undefined messages 场景。
+- 本机工作环境（DSH 0.1.7-rc.2）不改：插件只在 fork 仓库演进，宿主源码侦察用 `.recon/` 下载的 0.2.1-rc.2 npm 包（已加入 .gitignore）。
+
+### 测试
+
+- 新增 `test/sampling.mjs`：26 项，含 durableRead、prefillOnce/every、幂等、undefined messages、runtime-context 分流、双安装不叠加——ALL PASS。
+- 既有 `test/gate.mjs` 71 项全过；`test/cwd-variable.mjs` 10 过 2 失败 2 skip——两个失败（`renderPrompt is not a function`）在干净 1.4.1 基线上同样失败，属宿主渲染器缺失的环境依赖，与本次改动无关。
+
+---
+
 ## 1.4.1 — 修「装完就用不了」的 cwd 变量崩溃
 
 ### 症状
