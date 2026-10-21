@@ -7,6 +7,30 @@ Baseline: **1.2.0**. Everything below is what this fork adds, improves, or fixes
 
 ---
 
+## 1.5.1 — 宿主版本告警 + 修「切提示词要重启」的错误说法
+
+### 新增：`lib/host-watch.js`
+
+补丁是按宿主原文写的字面量，宿主一升级就可能对不上。这一层负责「什么时候该重跑审计」：
+
+- 启动时读宿主版本（`dsh-base` → `dsh` → `dsh-agent-loop` → `dsh-system-prompt`，逐个退），与 `$DSH_HOME/dsh-purge/host-version.json` 比对。
+- 换版本：记录 `previous` + `changedAt`，`purgeLog("host-version", ...)` 打一行提示，`/purge status` 的「宿主版本」行变成 `0.3.0（上次 0.2.1-rc.2，2026-10-21 变更 — 建议重跑补丁审计）`。
+- 同版本静默；宿主包全缺时什么都不写。只读宿主 `package.json`，不碰宿主文件。
+
+### 修复：切提示词不需要重启
+
+`prompt-inject.md` 是在每次 `system-prompt/assemble` 时由 `resolveInjectText()` 现读的，所以 `/purge prompts use` 与设置页切换**下一轮请求即生效**。1.5.0 里命令文本、工具描述、UI 提示统一写成「重启 dsh 后生效」，是错的，已全部改正。
+
+### 为什么这条值得单列
+
+它说明「读源码」这件事本身还在产出：不是功能缺失，是行为描述与真实行为不符——用户按错误说明去重启，白等一次。
+
+### 测试
+
+新增 `test/host-watch.mjs` 11 项：版本读取优先序、首次记录不告警、同版本静默、换版本告警与 previous 落盘、状态行文案、缺包回退、全缺时不写状态——ALL PASS。回归：prompts 20、refusal-sampling 26、sampling 26、gate 71 全过。
+
+---
+
 ## 1.5.0 — 提示词库：一份注入槽，多份提示词任选
 
 ### 新增：`lib/prompts.js`（全局）
