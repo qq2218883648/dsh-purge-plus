@@ -475,6 +475,17 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
 			"hooksDeny.bypass": "放行 hooks 的 deny / ask（补丁 30 / 31 / 64 / 65）",
 			"hooksDeny.hint": "关掉后，用户自己的 PreToolUse / UserPromptSubmit / Stop hook 的 deny 会按官方逻辑生效。官方 ask 分支本身是空操作，关开关不会弹出审批框。改完后点「应用」并重启才写进宿主。",
 			"saved.hooksDeny": "已保存",
+			"sampling.title": "采样",
+			"sampling.lead": "请求级温度与 assistant 预填。保存即生效，不用重启。",
+			"sampling.temp": "温度",
+			"sampling.tempUnset": "留空不注入",
+			"sampling.tempHint": "0 ~ 2，留空表示不注入温度。DeepSeek 的 thinking 模式会忽略这个值——要它生效需 reasoningEffort=off 或换成非推理模型。",
+			"sampling.once": "每轮只在第一步注入预填",
+			"sampling.prefillPlaceholder": "在这里输入预填文本，留空关闭预填。",
+			"sampling.prefillHint": "预填会作为一条 assistant 消息接在用户输入后面，模型从这段文字接着写（Anthropic 式预填）。它会进会话记录。",
+			"sampling.save": "保存采样设置",
+			"sampling.saved": "已保存，下一轮请求生效",
+			"sampling.badTemp": "温度要填 0 ~ 2 之间的数字，或留空",
 			"continue.title": "失败重试 / 继续",
 			"continue.hint": "请求失败会自动重试；异常停止或中断可点「继续」或自动续跑。自己点停止不会自动继续。次数用完后需新开一轮。",
 			"continue.autoRetry": "失败自动重试",
@@ -841,6 +852,17 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
 			"hooksDeny.bypass": "Bypass hook deny / ask (patches 30 / 31 / 64 / 65)",
 			"hooksDeny.hint": "When off, your own PreToolUse / UserPromptSubmit / Stop hook deny runs as the official host wrote it. The official ask branch is a no-op; turning this off will not show an approval dialog. Click Apply and restart to write the host files.",
 			"saved.hooksDeny": "Saved",
+			"sampling.title": "Sampling",
+			"sampling.lead": "Request-level temperature and assistant prefill. Saved settings apply to the next request; no restart needed.",
+			"sampling.temp": "Temperature",
+			"sampling.tempUnset": "empty = not sent",
+			"sampling.tempHint": "0 to 2. Leave empty to send no temperature. DeepSeek thinking mode ignores this value — it only takes effect with reasoningEffort=off or a non-reasoning model.",
+			"sampling.once": "Inject prefill only on the first step of each turn",
+			"sampling.prefillPlaceholder": "Type the prefill text here; leave empty to disable prefill.",
+			"sampling.prefillHint": "The prefill is appended as an assistant message after your input, so the model continues from it (Anthropic-style prefill). It is recorded in the session.",
+			"sampling.save": "Save sampling settings",
+			"sampling.saved": "Saved — applies from the next request",
+			"sampling.badTemp": "Temperature must be a number between 0 and 2, or empty",
 			"continue.title": "Retry / Continue",
 			"continue.hint": "Failed requests auto-retry. After an abnormal stop or interrupt, use Continue or auto-resume. A manual stop never auto-continues. Counts reset after a completed turn.",
 			"continue.autoRetry": "Auto-retry on failure",
@@ -1475,6 +1497,109 @@ body:not([data-ds-dark-theme]) .dshp-auth-legal{background:var(--dsw-alias-bg-la
 						t("hooksDeny.bypass"),
 					),
 				),
+			);
+		}
+
+		/* 采样（1.4.2）：请求级温度 + assistant 预填。
+		 * temperature 走 agent/request 瀑布，prefill 走 agent/pre-step；两个钩子
+		 * 每请求现读 $DSH_HOME/dsh-purge/sampling.json，所以保存即生效、不用重启。
+		 * 温度只对 reasoningEffort=off 或非推理模型有效，thinking 模式下宿主会忽略。 */
+		function SamplingSection() {
+			const t = useT();
+			const [state, setState] = useState(null);
+			const [temp, setTemp] = useState("");
+			const [prefill, setPrefill] = useState("");
+			const [once, setOnce] = useState(true);
+			const [notice, setNotice] = useState({ kind: "idle", text: "" });
+			const [busy, setBusy] = useState(false);
+
+			const adopt = (d) => {
+				if (!d || d.ok === false) return;
+				setState(d);
+				setTemp(d.temperature === null || d.temperature === void 0 ? "" : String(d.temperature));
+				setPrefill(String(d.prefill || ""));
+				setOnce(d.prefillOnce !== false);
+			};
+
+			useEffect(() => {
+				apiJson("/dsh-purge/sampling").then(adopt).catch(() => {});
+			}, []);
+
+			const save = () => {
+				if (busy) return;
+				const raw = String(temp || "").trim();
+				const body = { prefill, prefillOnce: once !== false };
+				if (raw === "") body.temperature = null;
+				else {
+					const n = Number(raw);
+					if (!Number.isFinite(n)) {
+						setNotice({ kind: "error", text: t("sampling.badTemp") });
+						return;
+					}
+					body.temperature = n;
+				}
+				setBusy(true);
+				apiJson("/dsh-purge/sampling", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify(body),
+				})
+					.then((d) => {
+						adopt(d);
+						setNotice({ kind: "ok", text: t("sampling.saved") });
+					})
+					.catch((e) => setNotice({ kind: "error", text: t("err.save", { error: e.message }) }))
+					.finally(() => setBusy(false));
+			};
+
+			if (!state) return null;
+			return h("section", { className: "dshp-panel", "aria-label": t("sampling.title") },
+				h("div", { className: "dshp-head" },
+					h("div", null,
+						h("h3", { className: "dshp-title" }, t("sampling.title")),
+						h("p", { className: "dshp-panel-lead" }, t("sampling.lead")),
+					),
+					h("div", { className: "dshp-row", style: { margin: 0 } },
+						h(Btn, { kind: "primary", tiny: true, disabled: busy, onClick: save }, t("sampling.save")),
+					),
+				),
+				h("div", { className: "dshp-cr-row" },
+					h("label", { style: { display: "inline-flex", alignItems: "center", gap: 8 } },
+						t("sampling.temp"),
+						h("input", {
+							type: "number",
+							min: 0,
+							max: 2,
+							step: 0.1,
+							value: temp,
+							disabled: busy,
+							placeholder: t("sampling.tempUnset"),
+							onChange: (e) => setTemp(e.target.value),
+							style: { width: 96 },
+						}),
+					),
+					h("label", { style: { display: "inline-flex", alignItems: "center", gap: 6 } },
+						h("input", {
+							type: "checkbox",
+							checked: once,
+							disabled: busy,
+							onChange: (e) => setOnce(e.target.checked),
+						}),
+						t("sampling.once"),
+					),
+					noticeNode(notice),
+				),
+				h("p", { className: "dshp-block-hint" }, t("sampling.tempHint")),
+				h("textarea", {
+					className: "dshp-area",
+					value: prefill,
+					disabled: busy,
+					spellCheck: false,
+					placeholder: t("sampling.prefillPlaceholder"),
+					onChange: (e) => setPrefill(e.target.value),
+					style: { minHeight: 96 },
+				}),
+				h("p", { className: "dshp-block-hint" }, t("sampling.prefillHint")),
 			);
 		}
 
@@ -2254,6 +2379,7 @@ body:not([data-ds-dark-theme]) .dshp-auth-legal{background:var(--dsw-alias-bg-la
 					style: { color: "var(--dshp-bad)" },
 				}, t("need.prompt")) : null,
 			),
+			h(SamplingSection, {}),
 			h("section", { className: "dshp-panel", "aria-label": t("own.title") },
 				h("div", { className: "dshp-head" },
 					h("div", null,

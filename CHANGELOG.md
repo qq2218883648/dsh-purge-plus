@@ -7,6 +7,40 @@ Baseline: **1.2.0**. Everything below is what this fork adds, improves, or fixes
 
 ---
 
+## 1.4.3 — 采样面板（自己输入预填）+ 宿主补丁覆盖审计工具
+
+### 新增：设置页「采样」面板
+
+`client.js` 破甲页新增一张 `SamplingSection` 卡片（提示词面板下方）：
+
+- **温度输入框**：0 ~ 2，步进 0.1，留空表示不注入；保存即写 `sampling.json`，下一轮请求生效。
+- **预填文本框**：多行，自己输入任意开头文字；留空关闭预填。这就是「预填窗口」——不用改文件、不用命令行。
+- **每轮只在第一步注入** 勾选框：对应 `prefillOnce`，默认开。
+- 走已有 HTTP 路由 `GET/POST /dsh-purge/sampling`，与命令、工具三入口共用同一份配置。
+- 中英双语 i18n 键补齐（`sampling.*`）。
+
+### 新增：`test/host-audit.mjs`（宿主升级第一件事）
+
+对任意 DSH 宿主包根跑全量补丁覆盖检查：
+
+```
+node test/host-audit.mjs <aiBase>
+# 例：node test/host-audit.mjs ".recon/host/node_modules/@deepseek-ai"
+```
+
+- 输出四态：`pending`（pattern 仍命中原始宿主 → 可用）、`skipped`（原文对不上 → 需跟改）、`missing_file`（目标包缺失）、`applied`（marker 已在）。
+- 只读，不写宿主；`DSH_HOME` 指向临时目录，不碰用户态配置。
+- 这是 1.4.2 之后「随宿主更新」的固定入口：升级宿主 → 跑审计 → 只看 skipped 清单。
+
+### 0.2.1-rc.2 首次审计结果（27 个补丁目标包）
+
+- **46 个补丁 pattern 仍命中原始 0.2.1-rc.2 文本**，可直接应用。
+- 2 个 skipped 属设计内：`#80 MINIMAL_OFFICIAL_TOOLSET`、`#88 HUNG_PROMPT_STRICT_NEEDLE` 都是「补丁叠补丁」的自我修正，在原始宿主上本就不该命中。
+- 4 个目标文件缺失仅因本地审计根未拉全（persona / web presets / base cordis.patch.yml 等），非宿主变更。
+- 结论：1.4.x 补丁集对 0.2.1-rc.2 没有真实断裂。
+
+---
+
 ## 1.4.2 — 采样扩展：请求级温度 + assistant 预填（全量宿主源码对齐后移植）
 
 ### 新增能力
