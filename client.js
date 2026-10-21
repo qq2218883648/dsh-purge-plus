@@ -506,6 +506,15 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
 			"prompts.hint": "内置四份：出厂默认、精简执行者、创作模式、红队作业。第三方提示词可从 GitHub 拉下来后用 /purge prompts import <路径> 导入。",
 			"prompts.empty": "库为空。重启插件会自动补写内置四份，或执行 /purge prompts seed。",
 			"prompts.done": "已切换，下一轮请求即生效",
+			"hardening.title": "破甲强化",
+			"hardening.lead": "两处加力：尾置段放在系统提示词最后（近因最强），拒答前缀把常见道歉做成 stop。",
+			"hardening.tailHint": "尾置段（order 10300）排在官方 persona-suffix 之后。模型决定要不要拒答时读到的是这一段。留空则关闭。",
+			"hardening.tailPlaceholder": "尾置段文本，留空关闭",
+			"hardening.stopsLabel": "拒答前缀熔断（用 | 分隔，留空关闭）",
+			"hardening.stopsPlaceholder": "很抱歉|I'm sorry|作为 AI",
+			"hardening.stopsHint": "开了等于「模型一开口道歉就掐断」，再由拒答自愈追发。代价：正常解释错误里的「很抱歉」也会被截断，自行权衡。",
+			"hardening.save": "保存破甲强化",
+			"hardening.saved": "已保存，下一轮请求即生效",
 			"continue.title": "失败重试 / 继续",
 			"continue.hint": "请求失败会自动重试；异常停止或中断可点「继续」或自动续跑。自己点停止不会自动继续。次数用完后需新开一轮。",
 			"continue.autoRetry": "失败自动重试",
@@ -903,6 +912,15 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
 			"prompts.hint": "Four built-ins: factory default, lean executor, creative, red team. Import third-party prompts from GitHub with /purge prompts import <path>.",
 			"prompts.empty": "Library is empty. Restart the plugin to seed the four built-ins, or run /purge prompts seed.",
 			"prompts.done": "Switched — applies from the next request",
+			"hardening.title": "Hardening",
+			"hardening.lead": "Two levers: a tail section placed last in the system prompt (strongest recency), and refusal prefixes as stop sequences.",
+			"hardening.tailHint": "The tail section (order 10300) comes after the official persona-suffix, so it is what the model reads when deciding whether to refuse. Empty disables it.",
+			"hardening.tailPlaceholder": "Tail text; empty disables",
+			"hardening.stopsLabel": "Refusal-prefix cutoff (separate with |; empty disables)",
+			"hardening.stopsPlaceholder": "I'm sorry|I cannot|As an AI",
+			"hardening.stopsHint": "Enabling this cuts generation the moment the model starts apologising, then refusal heal takes over. Cost: a genuine apology inside a normal explanation is cut too — weigh it yourself.",
+			"hardening.save": "Save hardening",
+			"hardening.saved": "Saved — applies from the next request",
 			"continue.title": "Retry / Continue",
 			"continue.hint": "Failed requests auto-retry. After an abnormal stop or interrupt, use Continue or auto-resume. A manual stop never auto-continues. Counts reset after a completed turn.",
 			"continue.autoRetry": "Auto-retry on failure",
@@ -1842,6 +1860,84 @@ body:not([data-ds-dark-theme]) .dshp-auth-legal{background:var(--dsw-alias-bg-la
 			);
 		}
 
+		/* 破甲强化（1.6.0）：尾置段 + 拒答前缀熔断。
+		 * 尾置段 order 10300，排在官方 persona-suffix 之后，近因效应最强；
+		 * 拒答前缀做成 stop，模型一开口道歉就被掐断，再交给拒答自愈。 */
+		function HardeningSection() {
+			const t = useT();
+			const [cfg, setCfg] = useState(null);
+			const [tail, setTail] = useState("");
+			const [stops, setStops] = useState("");
+			const [notice, setNotice] = useState({ kind: "idle", text: "" });
+			const [busy, setBusy] = useState(false);
+
+			const adopt = (d) => {
+				if (!d || d.ok === false) return;
+				setCfg(d);
+				setTail(String(d.tail || ""));
+				setStops(Array.isArray(d.refusalStops) ? d.refusalStops.join("|") : "");
+			};
+
+			useEffect(() => {
+				apiJson("/dsh-purge/hardening").then(adopt).catch(() => {});
+			}, []);
+
+			const save = () => {
+				if (busy) return;
+				setBusy(true);
+				apiJson("/dsh-purge/hardening", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						tail,
+						refusalStops: String(stops || "").split("|").map((s) => s.trim()).filter(Boolean),
+					}),
+				})
+					.then((d) => {
+						adopt(d);
+						setNotice({ kind: "ok", text: t("hardening.saved") });
+					})
+					.catch((e) => setNotice({ kind: "error", text: t("err.save", { error: e.message }) }))
+					.finally(() => setBusy(false));
+			};
+
+			if (!cfg) return null;
+			return h("section", { className: "dshp-panel", "aria-label": t("hardening.title") },
+				h("div", { className: "dshp-head" },
+					h("div", null,
+						h("h3", { className: "dshp-title" }, t("hardening.title")),
+						h("p", { className: "dshp-panel-lead" }, t("hardening.lead")),
+					),
+					h("div", { className: "dshp-row", style: { margin: 0 } },
+						h(Btn, { kind: "primary", tiny: true, disabled: busy, onClick: save }, t("hardening.save")),
+					),
+				),
+				h("p", { className: "dshp-block-hint" }, t("hardening.tailHint")),
+				h("textarea", {
+					className: "dshp-area",
+					value: tail,
+					disabled: busy,
+					spellCheck: false,
+					placeholder: t("hardening.tailPlaceholder"),
+					onChange: (e) => setTail(e.target.value),
+					style: { minHeight: 120 },
+				}),
+				h("label", { style: { display: "block", marginTop: 10 } },
+					h("span", { style: { color: "var(--dshp-mute)", fontSize: 12 } }, t("hardening.stopsLabel")),
+					h("input", {
+						type: "text",
+						value: stops,
+						disabled: busy,
+						placeholder: t("hardening.stopsPlaceholder"),
+						onChange: (e) => setStops(e.target.value),
+						style: { width: "100%", marginTop: 4 },
+					}),
+				),
+				h("p", { className: "dshp-block-hint" }, t("hardening.stopsHint")),
+				h("div", { className: "dshp-row", style: { margin: 0 } }, noticeNode(notice)),
+			);
+		}
+
 		function ContinueRetrySection() {
 			const t = useT();
 			const [cfg, setCfg] = useState(null);
@@ -2619,6 +2715,7 @@ body:not([data-ds-dark-theme]) .dshp-auth-legal{background:var(--dsw-alias-bg-la
 				}, t("need.prompt")) : null,
 			),
 			h(PromptsSection, { t: t }),
+			h(HardeningSection, {}),
 			h(SamplingSection, {}),
 			h(RefusalSection, {}),
 			h("section", { className: "dshp-panel", "aria-label": t("own.title") },

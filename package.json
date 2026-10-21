@@ -1,6 +1,6 @@
 ﻿{
   "name": "dsh-purge",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "DeepSeek Harness 鐮寸敳锛氳鎵€鏈夋ā鍨嬮兘鑳界牬鐢诧紝涓嶅悓妯″瀷鍙崲涓嶅悓鎻愮ず璇嶏紱榛樿鎻愮ず璇嶉潰鍚戝浗妯°€屽皬鐮侀叡銆嶃€侸ailbreak for every model 鈥?swap prompts per model. 姹?Star 鏀惰棌 猸?濡傝浜屽紑锛岃鏌ョ湅缃插悕瑕佹眰閮ㄥ垎",
   "type": "module",
   "main": "lib/index.js",
@@ -90,7 +90,7 @@
       "zip": "https://github.com/YuJunZhiXue/dsh-purge/archive/refs/heads/master.zip",
       "git": "https://github.com/YuJunZhiXue/dsh-purge.git"
     },
-    "version": "1.5.1"
+    "version": "1.6.0"
   },
   "publishConfig": {
     "access": "public"
