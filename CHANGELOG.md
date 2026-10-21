@@ -7,6 +7,38 @@ Baseline: **1.2.0**. Everything below is what this fork adds, improves, or fixes
 
 ---
 
+## 1.4.4 — 拒答自愈 + 采样补齐 stop / maxTokens（全部全局）
+
+### 新增：拒答自愈（`lib/refusal.js`）
+
+提示词压制是事前的，模型仍可能在输出侧自行收敛成一句拒绝。这一层做事后闭环：
+
+- 一轮**正常结束**后，取本轮最后一条 assistant 消息；命中拒答判据就自动追一条 escalation 让模型重来。
+- 与既有「失败重试 / 继续」严格分工：异常停止、中断、超长（`max-tokens`）归 `continue-retry`，输出侧拒答归这里，两边不抢。
+- 每轮最多重来 `maxPerTurn` 次（默认 2，可 0~10）；用户发了新消息计数即清零；带工具调用的轮次不判。
+- 判据默认 25 条中外文高频拒答句式，宁漏勿误伤；可整表替换（`refusal.json` 的 `patterns`）。
+- 三个入口：`/purge refusal [on|off|max <n>|text <追发文本>|clear]`、模型工具 `purge_refusal`、`GET/POST /dsh-purge/refusal`；设置页新增「拒答自愈」卡片（开关 + 每轮上限 + 追发文本）。
+
+### 新增：采样补齐 stop / maxTokens
+
+`LlmCallConfig` 原生支持的另外两个字段接进同一处 `agent/request` 钩子：
+
+- `stop`：字符串数组，命中即截断（wire 上序列化为 `stop_sequences`）；上限 8 条、单条 64 字符、自动去重。
+- `maxTokens`：正整数，覆盖官方默认值，防跑飞。
+- UI 采样卡新增两个输入框（停止序列用 `|` 分隔、输出上限）。
+- 命令：`/purge sampling stop <a|b|off>`、`/purge sampling maxTokens <n|off>`；工具参数同名扩展。
+
+### 新增：采样自检
+
+`agent/request` 每次真正改写了请求时记录 `{provider, model, temperature, stop, maxTokens}` 到进程内 `lastApplied`，状态文本显示「上次实际发出」。这样「温度到底发没发出去」不用猜——thinking 模式是否忽略由服务端决定，但客户端发了什么一目了然。
+
+### 测试
+
+- 新增 `test/refusal-sampling.mjs`：26 项，覆盖 stop 清洗/注入、maxTokens 注入、lastApplied、同值不重复 patch、拒答判据（中英正负例）、末条 assistant 提取、自愈触发/上限/正常轮不触发/异常轮不插手/开关关闭、状态文本——ALL PASS。
+- 回归：`test/sampling.mjs` 26 项、`test/gate.mjs` 71 项全过；`test/host-audit.mjs` 对 0.2.1-rc.2 结论不变（46 可应用 / 2 设计内 skipped / 4 审计根缺失）。
+
+---
+
 ## 1.4.3 — 采样面板（自己输入预填）+ 宿主补丁覆盖审计工具
 
 ### 新增：设置页「采样」面板

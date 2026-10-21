@@ -486,6 +486,21 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
 			"sampling.save": "保存采样设置",
 			"sampling.saved": "已保存，下一轮请求生效",
 			"sampling.badTemp": "温度要填 0 ~ 2 之间的数字，或留空",
+			"sampling.stop": "停止序列",
+			"sampling.stopPlaceholder": "用 | 分隔多个，留空不注入",
+			"sampling.stopHint": "命中任一停止序列即截断输出。留空表示不注入。",
+			"sampling.maxTokens": "输出上限",
+			"sampling.maxTokensUnset": "留空不限制",
+			"sampling.badMaxTokens": "输出上限要填正整数，或留空",
+			"refusal.title": "拒答自愈",
+			"refusal.lead": "一轮正常结束后若最后一条回复是拒答，自动追一条指令让模型重来。",
+			"refusal.enabled": "启用拒答自愈",
+			"refusal.maxPerTurn": "每轮最多重来",
+			"refusal.hint": "只在该轮正常结束时判断；异常停止、中断、超长由「失败重试 / 继续」负责。命中任一拒答句式才触发，判据在 refusal.json 里可改。",
+			"refusal.escalatePlaceholder": "追发的指令文本",
+			"refusal.save": "保存拒答设置",
+			"refusal.saved": "已保存，本轮结束后生效",
+			"refusal.badMax": "每轮次数要填 0 ~ 10 的整数",
 			"continue.title": "失败重试 / 继续",
 			"continue.hint": "请求失败会自动重试；异常停止或中断可点「继续」或自动续跑。自己点停止不会自动继续。次数用完后需新开一轮。",
 			"continue.autoRetry": "失败自动重试",
@@ -863,6 +878,21 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
 			"sampling.save": "Save sampling settings",
 			"sampling.saved": "Saved — applies from the next request",
 			"sampling.badTemp": "Temperature must be a number between 0 and 2, or empty",
+			"sampling.stop": "Stop sequences",
+			"sampling.stopPlaceholder": "Separate with | ; empty disables",
+			"sampling.stopHint": "Generation stops at the first matching sequence. Empty means none.",
+			"sampling.maxTokens": "Max tokens",
+			"sampling.maxTokensUnset": "empty = no limit",
+			"sampling.badMaxTokens": "Max tokens must be a positive integer, or empty",
+			"refusal.title": "Refusal heal",
+			"refusal.lead": "When a turn ends normally but the last reply is a refusal, send one follow-up instruction so the model retries.",
+			"refusal.enabled": "Enable refusal heal",
+			"refusal.maxPerTurn": "Max retries per turn",
+			"refusal.hint": "Only evaluated when the turn ends normally; errors, aborts and max-token stops belong to Retry / Continue. Triggered only by a known refusal phrase; patterns live in refusal.json.",
+			"refusal.escalatePlaceholder": "Follow-up instruction text",
+			"refusal.save": "Save refusal settings",
+			"refusal.saved": "Saved — applies after this turn",
+			"refusal.badMax": "Retries per turn must be an integer between 0 and 10",
 			"continue.title": "Retry / Continue",
 			"continue.hint": "Failed requests auto-retry. After an abnormal stop or interrupt, use Continue or auto-resume. A manual stop never auto-continues. Counts reset after a completed turn.",
 			"continue.autoRetry": "Auto-retry on failure",
@@ -1508,6 +1538,8 @@ body:not([data-ds-dark-theme]) .dshp-auth-legal{background:var(--dsw-alias-bg-la
 			const t = useT();
 			const [state, setState] = useState(null);
 			const [temp, setTemp] = useState("");
+			const [stop, setStop] = useState("");
+			const [maxTok, setMaxTok] = useState("");
 			const [prefill, setPrefill] = useState("");
 			const [once, setOnce] = useState(true);
 			const [notice, setNotice] = useState({ kind: "idle", text: "" });
@@ -1519,6 +1551,8 @@ body:not([data-ds-dark-theme]) .dshp-auth-legal{background:var(--dsw-alias-bg-la
 				setTemp(d.temperature === null || d.temperature === void 0 ? "" : String(d.temperature));
 				setPrefill(String(d.prefill || ""));
 				setOnce(d.prefillOnce !== false);
+				setStop(Array.isArray(d.stop) ? d.stop.join("|") : "");
+				setMaxTok(d.maxTokens === null || d.maxTokens === void 0 ? "" : String(d.maxTokens));
 			};
 
 			useEffect(() => {
@@ -1537,6 +1571,17 @@ body:not([data-ds-dark-theme]) .dshp-auth-legal{background:var(--dsw-alias-bg-la
 						return;
 					}
 					body.temperature = n;
+				}
+				body.stop = String(stop || "").split("|").map((s) => s.trim()).filter(Boolean);
+				const mt = String(maxTok || "").trim();
+				if (mt === "") body.maxTokens = null;
+				else {
+					const n = Number(mt);
+					if (!Number.isSafeInteger(n) || n <= 0) {
+						setNotice({ kind: "error", text: t("sampling.badMaxTokens") });
+						return;
+					}
+					body.maxTokens = n;
 				}
 				setBusy(true);
 				apiJson("/dsh-purge/sampling", {
@@ -1590,6 +1635,33 @@ body:not([data-ds-dark-theme]) .dshp-auth-legal{background:var(--dsw-alias-bg-la
 					noticeNode(notice),
 				),
 				h("p", { className: "dshp-block-hint" }, t("sampling.tempHint")),
+				h("div", { className: "dshp-cr-row" },
+					h("label", { style: { display: "inline-flex", alignItems: "center", gap: 8, flex: "1 1 260px" } },
+						t("sampling.stop"),
+						h("input", {
+							type: "text",
+							value: stop,
+							disabled: busy,
+							placeholder: t("sampling.stopPlaceholder"),
+							onChange: (e) => setStop(e.target.value),
+							style: { flex: "1 1 auto", minWidth: 160 },
+						}),
+					),
+					h("label", { style: { display: "inline-flex", alignItems: "center", gap: 8 } },
+						t("sampling.maxTokens"),
+						h("input", {
+							type: "number",
+							min: 1,
+							step: 256,
+							value: maxTok,
+							disabled: busy,
+							placeholder: t("sampling.maxTokensUnset"),
+							onChange: (e) => setMaxTok(e.target.value),
+							style: { width: 128 },
+						}),
+					),
+				),
+				h("p", { className: "dshp-block-hint" }, t("sampling.stopHint")),
 				h("textarea", {
 					className: "dshp-area",
 					value: prefill,
@@ -1600,6 +1672,100 @@ body:not([data-ds-dark-theme]) .dshp-auth-legal{background:var(--dsw-alias-bg-la
 					style: { minHeight: 96 },
 				}),
 				h("p", { className: "dshp-block-hint" }, t("sampling.prefillHint")),
+			);
+		}
+
+		/* 拒答自愈（1.4.4）：一轮正常结束后若末条 assistant 是拒答，自动追一条
+		 * escalation 让模型重来。与「失败重试 / 继续」分工：异常与超长归那边，
+		 * 输出侧拒答归这里。每轮上限默认 2 次，用户发新消息即清零。 */
+		function RefusalSection() {
+			const t = useT();
+			const [cfg, setCfg] = useState(null);
+			const [enabled, setEnabled] = useState(true);
+			const [maxPerTurn, setMaxPerTurn] = useState("2");
+			const [escalate, setEscalate] = useState("");
+			const [notice, setNotice] = useState({ kind: "idle", text: "" });
+			const [busy, setBusy] = useState(false);
+
+			const adopt = (d) => {
+				if (!d || d.ok === false) return;
+				setCfg(d);
+				setEnabled(d.enabled !== false);
+				setMaxPerTurn(String(d.maxPerTurn === void 0 ? 2 : d.maxPerTurn));
+				setEscalate(String(d.escalateText || ""));
+			};
+
+			useEffect(() => {
+				apiJson("/dsh-purge/refusal").then(adopt).catch(() => {});
+			}, []);
+
+			const save = () => {
+				if (busy) return;
+				const n = Number(maxPerTurn);
+				if (!Number.isFinite(n) || n < 0 || n > 10) {
+					setNotice({ kind: "error", text: t("refusal.badMax") });
+					return;
+				}
+				setBusy(true);
+				apiJson("/dsh-purge/refusal", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ enabled, maxPerTurn: Math.trunc(n), escalateText: escalate }),
+				})
+					.then((d) => {
+						adopt(d);
+						setNotice({ kind: "ok", text: t("refusal.saved") });
+					})
+					.catch((e) => setNotice({ kind: "error", text: t("err.save", { error: e.message }) }))
+					.finally(() => setBusy(false));
+			};
+
+			if (!cfg) return null;
+			return h("section", { className: "dshp-panel", "aria-label": t("refusal.title") },
+				h("div", { className: "dshp-head" },
+					h("div", null,
+						h("h3", { className: "dshp-title" }, t("refusal.title")),
+						h("p", { className: "dshp-panel-lead" }, t("refusal.lead")),
+					),
+					h("div", { className: "dshp-row", style: { margin: 0 } },
+						h(Btn, { kind: "primary", tiny: true, disabled: busy, onClick: save }, t("refusal.save")),
+					),
+				),
+				h("div", { className: "dshp-cr-row" },
+					h("label", { style: { display: "inline-flex", alignItems: "center", gap: 6 } },
+						h("input", {
+							type: "checkbox",
+							checked: enabled,
+							disabled: busy,
+							onChange: (e) => setEnabled(e.target.checked),
+						}),
+						t("refusal.enabled"),
+					),
+					h("label", { style: { display: "inline-flex", alignItems: "center", gap: 8 } },
+						t("refusal.maxPerTurn"),
+						h("input", {
+							type: "number",
+							min: 0,
+							max: 10,
+							step: 1,
+							value: maxPerTurn,
+							disabled: busy,
+							onChange: (e) => setMaxPerTurn(e.target.value),
+							style: { width: 72 },
+						}),
+					),
+					noticeNode(notice),
+				),
+				h("p", { className: "dshp-block-hint" }, t("refusal.hint")),
+				h("textarea", {
+					className: "dshp-area",
+					value: escalate,
+					disabled: busy,
+					spellCheck: false,
+					placeholder: t("refusal.escalatePlaceholder"),
+					onChange: (e) => setEscalate(e.target.value),
+					style: { minHeight: 72 },
+				}),
 			);
 		}
 
@@ -2380,6 +2546,7 @@ body:not([data-ds-dark-theme]) .dshp-auth-legal{background:var(--dsw-alias-bg-la
 				}, t("need.prompt")) : null,
 			),
 			h(SamplingSection, {}),
+			h(RefusalSection, {}),
 			h("section", { className: "dshp-panel", "aria-label": t("own.title") },
 				h("div", { className: "dshp-head" },
 					h("div", null,
